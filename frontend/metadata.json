@@ -1,0 +1,8 @@
+{
+  "name": "Absensi Peserta Magang",
+  "description": "Production-ready internship attendance system with GPS, camera capture, and PDF export features.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

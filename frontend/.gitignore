@@ -1,0 +1,19 @@
+
+# Jalur folder backend/frontend yang berisi dependensi
+node_modules/
+dist/
+build/
+
+# File SENSITIF (Rahasia) - JANGAN PERNAH DI-REMOVE DARI SINI
+.env
+backend/.env
+frontend/.env
+*.log
+
+# File sistem
+.DS_Store
+Thumbs.db
+
+# Database lokal (jika ada)
+*.sql
+*.sqlite
