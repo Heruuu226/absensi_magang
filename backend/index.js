@@ -43,6 +43,24 @@ app.get('/api/time', (req, res) => {
     });
 });
 
+// API SETTINGS (GLOBAL JADWAL)
+app.get('/api/settings', async (req, res) => {
+    db.execute('SELECT config FROM settings WHERE id = 1', (err, results) => {
+        if (err || results.length === 0) return res.json({ 
+            clockInStart: "08:00", clockInEnd: "08:30", clockOutStart: "17:00", clockOutEnd: "23:59", operationalDays: [1, 2, 3, 4, 5], holidays: [] 
+        });
+        res.json(results[0].config);
+    });
+});
+
+app.post('/api/settings', authenticateToken, (req, res) => {
+    const config = req.body;
+    db.execute('UPDATE settings SET config = ? WHERE id = 1', [JSON.stringify(config)], (err) => {
+        if (err) return res.status(500).json({ message: "Gagal update jadwal" });
+        res.json({ success: true });
+    });
+});
+
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     db.execute('SELECT * FROM users WHERE email = ?', [email], async (err, results) => {
@@ -74,7 +92,6 @@ app.post('/api/register', async (req, res) => {
             if (err) {
                 console.error("MySQL Error:", err);
                 if (err.code === 'ER_DUP_ENTRY') return res.status(500).json({ message: "Email atau ID sudah terdaftar." });
-                if (err.code === 'ER_BAD_FIELD_ERROR') return res.status(500).json({ message: "Database belum diupdate. Jalankan: ALTER TABLE users ADD COLUMN plain_password VARCHAR(255) AFTER password;" });
                 return res.status(500).json({ message: "Gagal menyimpan: " + err.message });
             }
             res.json({ success: true });
@@ -181,7 +198,6 @@ app.post('/api/edit-requests/status', authenticateToken, (req, res) => {
         db.execute('SELECT * FROM edit_requests WHERE id = ?', [id], (err, results) => {
             if (results.length > 0) {
                 const r = results[0];
-                // UPDATE: Menambahkan update kolom 'note' saat admin menyetujui koreksi
                 const sqlUpdateAtt = 'UPDATE attendance SET clockIn = ?, clockOut = ?, status = ?, note = ? WHERE id = ?';
                 const systemNote = 'Sistem: telah dikoreksi oleh admin dan pembimbing';
                 

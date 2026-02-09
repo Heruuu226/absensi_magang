@@ -5,8 +5,8 @@ import CameraView from '../components/CameraView';
 import MapView from '../components/MapView';
 import { storage } from '../services/storageService';
 import { calculateStatus } from '../services/attendanceLogic';
-import { Loader2, RefreshCcw, ShieldCheck, AlertCircle, CheckCircle2, Calendar } from 'lucide-react';
-import { format } from 'date-fns';
+import { Loader2, RefreshCcw, ShieldCheck, AlertCircle, CheckCircle2, Calendar, Clock } from 'lucide-react';
+import { format, getDay } from 'date-fns';
 import Swal from 'sweetalert2';
 import { DEFAULT_SETTINGS } from '../constants';
 
@@ -37,32 +37,39 @@ const AttendanceForm: React.FC<{ user: User, type: 'in' | 'out', onSuccess: () =
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // Fungsi untuk memuat data dari server
+  const loadSyncData = async () => {
+    try {
+        const info = await storage.getServerTime();
+        setServerInfo(info);
+        
+        const [records, permits, fetchedSettings] = await Promise.all([
+          storage.getAttendanceByUser(user.id),
+          storage.getPermitsByUser(user.id),
+          storage.getSettings() // Sinkronisasi dengan database admin
+        ]);
+        
+        setSettings(fetchedSettings);
+        const foundRecord = records.find(r => r.date === info.date);
+        const foundPermit = permits.find(p => p.date === info.date);
+        
+        setTodayRecord(foundRecord || null);
+        setTodayPermit(foundPermit || null);
+        setDataLoaded(true);
+    } catch (error) {
+        console.error("Sync Error:", error);
+    }
+  };
+
   useEffect(() => {
-    const load = async () => {
-        try {
-            const info = await storage.getServerTime();
-            setServerInfo(info);
-            
-            const [records, permits, fetchedSettings] = await Promise.all([
-              storage.getAttendanceByUser(user.id),
-              storage.getPermitsByUser(user.id),
-              storage.getSettings()
-            ]);
-            
-            setSettings(fetchedSettings);
-            const foundRecord = records.find(r => r.date === info.date);
-            const foundPermit = permits.find(p => p.date === info.date);
-            
-            setTodayRecord(foundRecord || null);
-            setTodayPermit(foundPermit || null);
-        } catch (error) {
-            console.error("Load Error:", error);
-        } finally {
-            setDataLoaded(true);
-        }
-    };
-    load();
+    loadSyncData();
+    
+    // Auto-sync setiap 30 detik untuk memastikan jam & jadwal tetap akurat
+    const syncInterval = setInterval(loadSyncData, 30000);
+    
     navigator.geolocation.getCurrentPosition((pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }));
+    
+    return () => clearInterval(syncInterval);
   }, [user.id]);
 
   const handleSubmit = async () => {
@@ -104,40 +111,60 @@ const AttendanceForm: React.FC<{ user: User, type: 'in' | 'out', onSuccess: () =
   if (!dataLoaded) return (
     <div className="flex flex-col items-center justify-center py-20 gap-4">
       <Loader2 className="animate-spin text-rose-600" size={40} />
-      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Memvalidasi Status Presensi...</p>
+      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Memvalidasi Jadwal Kerja...</p>
     </div>
   );
 
-  // LOGIKA BLOKIR OTOMATIS
+  // LOGIKA BLOKIR OTOMATIS BERDASARKAN JADWAL DARI DATABASE
   let blockReason = "";
   const isHoliday = serverInfo && settings.holidays.includes(serverInfo.date);
+  const dayOfWeek = serverInfo ? getDay(new Date(serverInfo.date)) : -1;
+  const isOperationalDay = settings.operationalDays.includes(dayOfWeek);
 
-  if (isHoliday) {
-    blockReason = "Hari ini adalah Hari Libur / Cuti Bersama. Anda tidak perlu melakukan absensi karena sistem telah mencatat kehadiran Anda secara otomatis.";
-  } else if (todayPermit) {
-    blockReason = "Absensi Ditolak: Anda sudah memiliki pengajuan Izin/Sakit hari ini.";
-  } else if (todayRecord?.status === AttendanceStatus.ALPHA_SYSTEM) {
-    blockReason = "Absensi Terkunci: Status Anda hari ini adalah Alpha (Sistem). Silakan ajukan koreksi ke Admin jika ini kesalahan.";
-  } else if (type === 'in' && todayRecord?.clockIn) {
-    blockReason = "Absensi Ditolak: Anda sudah melakukan Absen Masuk hari ini.";
-  } else if (type === 'out' && todayRecord?.clockOut) {
-    blockReason = "Absensi Ditolak: Anda sudah melakukan Absen Pulang hari ini.";
+  if (serverInfo) {
+    if (isHoliday) {
+      blockReason = "Hari ini adalah Hari Libur / Cuti Bersama. Anda tidak perlu melakukan absensi.";
+    } else if (!isOperationalDay) {
+      blockReason = "Akses Ditolak: Hari ini bukan hari kerja sesuai jadwal yang diatur oleh Admin.";
+    } else if (todayPermit) {
+      blockReason = "Absensi Ditolak: Anda sudah memiliki pengajuan Izin/Sakit hari ini.";
+    } else if (todayRecord?.status === AttendanceStatus.ALPHA_SYSTEM) {
+      blockReason = "Absensi Terkunci: Status Anda hari ini adalah Alpha (Sistem). Silakan ajukan koreksi ke Admin jika ini kesalahan.";
+    } else if (type === 'in') {
+       if (todayRecord?.clockIn) {
+         blockReason = "Absensi Ditolak: Anda sudah melakukan Absen Masuk hari ini.";
+       } else if (serverInfo.time < settings.clockInStart) {
+         blockReason = `Sesi Absen Masuk Belum Dibuka. Jadwal masuk Anda dimulai pukul ${settings.clockInStart} WIB.`;
+       }
+    } else if (type === 'out') {
+       if (!todayRecord) {
+         blockReason = "Absensi Ditolak: Silakan lakukan Absen Masuk terlebih dahulu.";
+       } else if (todayRecord.clockOut) {
+         blockReason = "Absensi Ditolak: Anda sudah melakukan Absen Pulang hari ini.";
+       } else if (serverInfo.time < settings.clockOutStart) {
+         blockReason = `Belum Waktunya Pulang. Jadwal pulang Anda diatur pukul ${settings.clockOutStart} WIB.`;
+       } else if (serverInfo.time > settings.clockOutEnd) {
+         blockReason = `Sesi Absen Pulang Sudah Berakhir. Batas akhir sesi hari ini adalah pukul ${settings.clockOutEnd} WIB.`;
+       }
+    }
   }
 
   if (blockReason) {
     return (
       <div className="max-w-xl mx-auto space-y-6 fade-up py-10">
         <div className="bg-white p-12 rounded-[3rem] border shadow-2xl text-center space-y-6 border-b-8 border-rose-600">
-           <div className={`w-20 h-20 ${isHoliday ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} rounded-full flex items-center justify-center mx-auto`}>
-              {isHoliday ? <Calendar size={40} /> : <AlertCircle size={40} />}
+           <div className={`w-20 h-20 ${isHoliday ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} rounded-full flex items-center justify-center mx-auto shadow-inner`}>
+              {isHoliday ? <Calendar size={40} /> : <Clock size={40} />}
            </div>
            <div className="space-y-2">
               <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">
-                {isHoliday ? 'Hari Libur / Cuti Bersama' : 'Akses Presensi Terkunci'}
+                {isHoliday ? 'Hari Libur Kerja' : 'Sesi Belum Tersedia'}
               </h2>
-              <p className="text-slate-500 text-[11px] font-bold leading-relaxed uppercase tracking-tight">{blockReason}</p>
+              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                 <p className="text-slate-600 text-[11px] font-bold leading-relaxed uppercase tracking-tight">{blockReason}</p>
+              </div>
            </div>
-           <button onClick={onSuccess} className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-rose-600 transition-all">Kembali ke Beranda</button>
+           <button onClick={onSuccess} className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-rose-600 transition-all shadow-xl">Kembali ke Beranda</button>
         </div>
       </div>
     );

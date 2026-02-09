@@ -40,15 +40,24 @@ const IzinForm: React.FC<IzinFormProps> = ({ user, onSuccess }) => {
   const [type, setType] = useState<'Izin' | 'Sakit'>('Izin');
   const [reason, setReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isChecking, setIsChecking] = useState(true);
   const [blockReason, setBlockReason] = useState<string | null>(null);
   const [isHoliday, setIsHoliday] = useState(false);
 
   useEffect(() => {
-    checkStatus();
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => console.error(err)
-    );
+    const init = async () => {
+      setIsChecking(true);
+      try {
+        await checkStatus();
+        navigator.geolocation.getCurrentPosition(
+          (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (err) => console.error("Location access denied", err)
+        );
+      } finally {
+        setIsChecking(false);
+      }
+    };
+    init();
   }, []);
 
   const checkStatus = async () => {
@@ -90,6 +99,18 @@ const IzinForm: React.FC<IzinFormProps> = ({ user, onSuccess }) => {
       if (!f.type.startsWith('image/')) {
         return Swal.fire('Error', 'Hanya format gambar (JPG/PNG) yang diperbolehkan!', 'error');
       }
+
+      // VALIDASI UKURAN FILE: Maksimal 200KB
+      const maxSize = 200 * 1024; // 200KB
+      if (f.size > maxSize) {
+        return Swal.fire({
+          icon: 'error',
+          title: 'File Terlalu Besar',
+          text: 'Ukuran foto bukti maksimal adalah 200KB. Silakan kompres atau perkecil ukuran foto Anda.',
+          confirmButtonColor: '#e11d48'
+        });
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => setFile(reader.result as string);
       reader.readAsDataURL(f);
@@ -130,6 +151,15 @@ const IzinForm: React.FC<IzinFormProps> = ({ user, onSuccess }) => {
     }
   };
 
+  if (isChecking) {
+    return (
+      <div className="flex flex-col items-center justify-center py-40 gap-4">
+        <Loader2 className="animate-spin text-rose-600" size={48} />
+        <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Memvalidasi Kalender Kerja...</p>
+      </div>
+    );
+  }
+
   if (blockReason) {
     return (
       <div className="max-w-xl mx-auto py-20 px-10 bg-white rounded-[2.5rem] border-b-8 border-rose-600 shadow-2xl text-center space-y-6 fade-up">
@@ -155,7 +185,7 @@ const IzinForm: React.FC<IzinFormProps> = ({ user, onSuccess }) => {
     <div className="max-w-xl mx-auto space-y-8 fade-down pb-10">
       <div className="text-center space-y-1">
         <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Form Izin / Sakit</h1>
-        <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">Wajib Melampirkan Bukti Foto Jelas (JPG/PNG)</p>
+        <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">Wajib Melampirkan Bukti Foto Jelas (Maks. 200KB)</p>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white p-8 md:p-10 rounded-[2.5rem] border shadow-2xl space-y-8 border-b-8 border-rose-600">

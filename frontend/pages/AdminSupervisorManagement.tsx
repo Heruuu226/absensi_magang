@@ -18,7 +18,6 @@ const AdminSupervisorManagement: React.FC = () => {
   const [employeeId, setEmployeeId] = useState('');
 
   useEffect(() => {
-    // Fix: Await promises
     const loadData = async () => {
       const [s, u] = await Promise.all([
         storage.getSupervisors(),
@@ -43,7 +42,6 @@ const AdminSupervisorManagement: React.FC = () => {
   };
 
   const handleNumericIdChange = (val: string) => {
-    // Hanya izinkan angka
     const numericVal = val.replace(/\D/g, '');
     setEmployeeId(numericVal);
   };
@@ -52,13 +50,27 @@ const AdminSupervisorManagement: React.FC = () => {
     e.preventDefault();
     if (!name || !division || !employeeId) return Swal.fire('Gagal', 'Data pembimbing tidak lengkap.', 'error');
     
+    const trimmedId = employeeId.trim();
+
+    // VALIDASI: Cek apakah ID Pembimbing sudah ada untuk mencegah overwrite nama
+    const isDuplicateId = list.some(s => s.employeeId === trimmedId && s.id !== isEditing);
+
+    if (isDuplicateId) {
+      return Swal.fire({
+        icon: 'error',
+        title: 'ID Pembimbing Sudah Ada!',
+        html: `ID <b>${trimmedId}</b> sudah terdaftar di sistem.<br/><br/>Anda tidak dapat mendaftarkan ID yang sama karena akan merusak integritas data pembimbing yang sudah ada.`,
+        confirmButtonColor: '#e11d48'
+      });
+    }
+
     const supervisorData: Supervisor = { 
       id: isEditing || `S-${Date.now()}`, 
       name, 
       division, 
-      employeeId: employeeId.trim() 
+      employeeId: trimmedId 
     };
-    // Fix: Await promise
+
     const result = await storage.saveSupervisor(supervisorData);
     
     if (result.success) {
@@ -131,7 +143,7 @@ const AdminSupervisorManagement: React.FC = () => {
           
           <div className="lg:col-span-2 bg-slate-50 p-6 rounded-3xl border border-slate-100 flex items-center gap-4">
              <ShieldAlert size={20} className="text-orange-500 shrink-0" />
-             <p className="text-[10px] text-slate-500 leading-relaxed font-bold italic uppercase tracking-tighter">ID Pembimbing wajib menggunakan format angka unik untuk relasi data.</p>
+             <p className="text-[10px] text-slate-500 leading-relaxed font-bold italic uppercase tracking-tighter">ID Pembimbing wajib unik dan tidak boleh sama dengan yang sudah terdaftar.</p>
           </div>
 
           <button type="submit" className="w-full py-6 bg-rose-600 text-white rounded-3xl font-black text-[12px] uppercase tracking-[0.2em] hover:bg-black transition-all shadow-2xl shadow-rose-200">

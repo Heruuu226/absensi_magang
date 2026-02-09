@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Waktu pembuatan: 06 Feb 2026 pada 03.20
+-- Waktu pembuatan: 09 Feb 2026 pada 02.23
 -- Versi server: 10.4.28-MariaDB
 -- Versi PHP: 8.2.4
 
@@ -45,13 +45,6 @@ CREATE TABLE `attendance` (
   `note` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data untuk tabel `attendance`
---
-
-INSERT INTO `attendance` (`id`, `userId`, `userName`, `date`, `clockIn`, `clockOut`, `status`, `lateMinutes`, `photoIn`, `photoOut`, `latIn`, `lngIn`, `latOut`, `lngOut`, `note`) VALUES
-('HOL-USR-1770344085317-2026-02-06', 'USR-1770344085317', 'Allan Bertha', '2026-02-06', NULL, NULL, 'Cuti Bersama', 0, NULL, NULL, NULL, NULL, NULL, NULL, 'Sistem: Hari Libur / Cuti Bersama.');
-
 -- --------------------------------------------------------
 
 --
@@ -90,6 +83,24 @@ CREATE TABLE `permits` (
   `lat` double DEFAULT NULL,
   `lng` double DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Struktur dari tabel `settings`
+--
+
+CREATE TABLE `settings` (
+  `id` int(11) NOT NULL DEFAULT 1,
+  `config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`config`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data untuk tabel `settings`
+--
+
+INSERT INTO `settings` (`id`, `config`) VALUES
+(1, '{\"clockInStart\": \"08:00\", \"clockInEnd\": \"08:30\", \"clockOutStart\": \"17:00\", \"clockOutEnd\": \"23:59\", \"operationalDays\": [1, 2, 3, 4, 5], \"holidays\": []}');
 
 -- --------------------------------------------------------
 
@@ -135,8 +146,8 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `name`, `email`, `password`, `plain_password`, `role`, `accountStatus`, `university`, `major`, `division`, `phone`, `photoUrl`, `supervisorId`, `supervisorName`, `startDate`, `endDate`, `createdAt`) VALUES
-('ADM-001', 'Admin PT Semen Padang', 'admin@sp.com', '$2a$12$k6jXoiXQHLxGjC0nJ5oNk.t3S8O0/tSsuS5eDY0cNWFdxmm65Ry8e', '', 'ADMIN', 'ACTIVE', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-02-06 02:12:25'),
-('USR-1770344085317', 'Allan Bertha', 'allan@gmail.com', '$2b$10$r4WRufdZ9DqkexPfZ.QaKeydGFSlJ0IDdi93GSDQk9DBlH1BBLfAO', 'Admin123!', 'PESERTA MAGANG', 'ACTIVE', 'SMK N 2 PADANG', 'PPLG', 'ICT', '081374066120', NULL, NULL, NULL, '2026-02-06', '2026-11-25', '2026-02-06 02:14:45');
+('ADM-001', 'Admin PT Semen Padang', 'admin@sp.com', '$2a$12$bAztdxuqE9VdXcjibVLoNeSXwav0jfhc48nnWhe7IHyAl5gvCHN6W', '', 'ADMIN', 'ACTIVE', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-02-06 14:27:26'),
+('USR-1770599089694', 'Allan Bertha Pamungkas', 'allan@gmail.com', '$2b$10$UllmU8k.gzYRGxnDx7kYo.zoZhgMcCsC/2vAxi2drphdL4uvhX/2C', 'Admin123!', 'PESERTA MAGANG', 'ACTIVE', 'SMK', 'RPL', 'ICT', '081374066120', NULL, NULL, NULL, '2026-02-09', '2026-04-30', '2026-02-09 01:04:49');
 
 --
 -- Indexes for dumped tables
@@ -162,6 +173,12 @@ ALTER TABLE `edit_requests`
 ALTER TABLE `permits`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `unique_permit_user_date` (`userId`,`date`);
+
+--
+-- Indeks untuk tabel `settings`
+--
+ALTER TABLE `settings`
+  ADD PRIMARY KEY (`id`);
 
 --
 -- Indeks untuk tabel `supervisors`

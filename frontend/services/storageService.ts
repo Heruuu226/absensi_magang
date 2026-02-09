@@ -1,6 +1,6 @@
 
 import { User, AttendanceRecord, UserRole, AttendanceStatus, AccountStatus, SystemSettings, PermitRecord, PermitStatus, Supervisor, EditRequest } from '../types';
-import { format, eachDayOfInterval, getDay, isBefore } from 'date-fns';
+import { format, eachDayOfInterval, getDay, isBefore, isAfter, isValid } from 'date-fns';
 import { DEFAULT_SETTINGS } from '../constants';
 
 const API_URL = 'http://localhost:3001/api';
@@ -106,16 +106,39 @@ const storage = {
 
   getSession: (): User | null => {
     const s = localStorage.getItem('pro_session');
-    return s ? JSON.parse(s) : null;
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s);
+      return (parsed && typeof parsed === 'object') ? parsed : null;
+    } catch (e) {
+      localStorage.removeItem('pro_session');
+      return null;
+    }
   },
 
   getSettings: async (): Promise<SystemSettings> => {
-    const s = localStorage.getItem('pro_settings');
-    return s ? JSON.parse(s) : DEFAULT_SETTINGS;
+    try {
+      const res = await fetch(`${API_URL}/settings`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.operationalDays) return data;
+      }
+    } catch (e) {
+      console.error("Database connection lost");
+    }
+    return DEFAULT_SETTINGS;
   },
 
   saveSettings: async (settings: SystemSettings): Promise<void> => {
-    localStorage.setItem('pro_settings', JSON.stringify(settings));
+    try {
+      await fetch(`${API_URL}/settings`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(settings)
+      });
+    } catch (e) {
+      throw new Error("Gagal menyimpan ke database MySQL");
+    }
   },
 
   getPermits: async (): Promise<PermitRecord[]> => {
@@ -171,68 +194,69 @@ const storage = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password: pass })
     });
-    if (!res.ok) throw new Error('Email atau Password salah.');
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.message || 'Email atau Password salah.');
+    }
     return await res.json();
   },
 
   syncAlphaStatus: async (user: User) => {
     if (user.role === UserRole.ADMIN) return;
+    if (!user.startDate || user.startDate === "0000-00-00") return;
+
     try {
+        const serverTime = await storage.getServerTime();
         const settings = await storage.getSettings();
         const records = await storage.getAttendanceByUser(user.id);
         const permits = (await storage.getPermitsByUser(user.id)).filter(p => p.status === PermitStatus.APPROVED);
-        const serverTime = await storage.getServerTime();
         
         const startDate = new Date(user.startDate);
-        startDate.setHours(0, 0, 0, 0);
-        
         const today = new Date(serverTime.date);
+        
+        if (!isValid(startDate) || !isValid(today) || isAfter(startDate, today)) return;
+
+        startDate.setHours(0, 0, 0, 0);
         today.setHours(0, 0, 0, 0);
         
-        const interval = eachDayOfInterval({ start: startDate, end: today });
+        try {
+            const interval = eachDayOfInterval({ start: startDate, end: today });
 
-        for (const day of interval) {
-            const dateStr = format(day, 'yyyy-MM-dd');
-            const isToday = dateStr === serverTime.date;
-            const dayOfWeek = getDay(day);
-            const isOperational = settings.operationalDays.includes(dayOfWeek);
-            const isHoliday = settings.holidays.includes(dateStr);
-            
-            const hasRecord = records.some(r => r.date === dateStr);
-            const hasPermit = permits.some(p => p.date === dateStr);
+            for (const day of interval) {
+                const dateStr = format(day, 'yyyy-MM-dd');
+                const isToday = dateStr === serverTime.date;
+                const dayOfWeek = getDay(day);
+                const isOperational = settings.operationalDays?.includes(dayOfWeek);
+                const isHoliday = settings.holidays?.includes(dateStr);
+                
+                const hasRecord = records.some(r => r.date === dateStr);
+                const hasPermit = permits.some(p => p.date === dateStr);
 
-            if (isHoliday) {
-                if (!hasRecord) {
+                if (isHoliday && !hasRecord) {
                     await storage.saveAttendance({
-                        id: `HOL-${user.id}-${dateStr}`,
-                        userId: user.id,
-                        userName: user.name,
-                        date: dateStr,
-                        clockIn: null, clockOut: null,
-                        status: AttendanceStatus.CUTI_BERSAMA,
-                        lateMinutes: 0, photoIn: null, photoOut: null,
-                        latIn: null, lngIn: null, latOut: null, lngOut: null,
+                        id: `HOL-${user.id}-${dateStr}`, userId: user.id, userName: user.name, date: dateStr,
+                        clockIn: null, clockOut: null, status: AttendanceStatus.CUTI_BERSAMA,
+                        lateMinutes: 0, photoIn: null, photoOut: null, latIn: null, lngIn: null, latOut: null, lngOut: null,
                         note: 'Sistem: Hari Libur / Cuti Bersama.'
                     });
+                    continue;
                 }
-                continue;
-            }
 
-            if (isOperational && !isToday && !hasRecord && !hasPermit) {
-                await storage.saveAttendance({
-                    id: `ALP-${user.id}-${dateStr}`,
-                    userId: user.id,
-                    userName: user.name,
-                    date: dateStr,
-                    clockIn: null, clockOut: null,
-                    status: AttendanceStatus.ALPHA_SYSTEM,
-                    lateMinutes: 0, photoIn: null, photoOut: null,
-                    latIn: null, lngIn: null, latOut: null, lngOut: null,
-                    note: 'Sistem: Tidak melakukan presensi harian hingga akhir hari.'
-                });
+                if (isOperational && !isToday && !hasRecord && !hasPermit) {
+                    await storage.saveAttendance({
+                        id: `ALP-${user.id}-${dateStr}`, userId: user.id, userName: user.name, date: dateStr,
+                        clockIn: null, clockOut: null, status: AttendanceStatus.ALPHA_SYSTEM,
+                        lateMinutes: 0, photoIn: null, photoOut: null, latIn: null, lngIn: null, latOut: null, lngOut: null,
+                        note: 'Sistem: Alpha (Otomatis).'
+                    });
+                }
             }
+        } catch (e) {
+            console.error("Interval calculation error handled.");
         }
-    } catch (e) { console.error("Auto Sync Error:", e); }
+    } catch (e) { 
+        console.error("Alpha Sync Safe Error:", e); 
+    }
   }
 };
 

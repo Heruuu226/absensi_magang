@@ -2,8 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { User, AttendanceRecord as Attendance, AttendanceStatus, PermitStatus, SystemSettings } from '../types';
 import { storage } from '../services/storageService';
-import { Clock, Calendar, X, ShieldCheck, ChevronLeft, ChevronRight, Eye, Briefcase, GraduationCap, UserCheck, Timer, MapPin, Camera, Info } from 'lucide-react';
-import { format, eachDayOfInterval, getDay, isAfter, isBefore } from 'date-fns';
+import { Clock, Calendar, X, ShieldCheck, ChevronLeft, ChevronRight, Eye, Briefcase, GraduationCap, UserCheck, Timer, MapPin, Camera, Info, Loader2 } from 'lucide-react';
+import { format, eachDayOfInterval, getDay, isAfter, isBefore, isValid } from 'date-fns';
 import { id as localeId } from 'date-fns/locale/id';
 import MapView from '../components/MapView';
 import { DEFAULT_SETTINGS } from '../constants';
@@ -14,7 +14,6 @@ interface UserDashboardProps {
 
 const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
   const [records, setRecords] = useState<Attendance[]>([]);
-  const [allRecords, setAllRecords] = useState<Attendance[]>([]);
   const [stats, setStats] = useState({ hadir: 0, izinSakit: 0, alpha: 0, total: 0 });
   const [currentPage, setCurrentPage] = useState(1);
   const [viewingRecord, setViewingRecord] = useState<Attendance | null>(null);
@@ -24,69 +23,90 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
   
   const itemsPerPage = 8;
 
-  useEffect(() => {
-    const init = async () => {
-      await storage.syncAlphaStatus(user);
-      await loadData();
-      setLoading(false);
-    };
-    init();
-  }, [user]);
-
-  const loadData = async () => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    
-    const [fetchedAllRecords, fetchedPermits, fetchedSettings] = await Promise.all([
-      storage.getAttendanceByUser(user.id),
-      storage.getPermitsByUser(user.id),
-      storage.getSettings()
-    ]);
-    
-    setAllRecords(fetchedAllRecords);
-    setSettings(fetchedSettings);
-
-    const monthlyRecords = fetchedAllRecords.filter(r => {
-      const d = new Date(r.date);
-      return d >= start && d <= end;
-    }).sort((a, b) => b.date.localeCompare(a.date));
-
-    setRecords(monthlyRecords);
-
-    const approvedPermits = fetchedPermits.filter(p => p.status === PermitStatus.APPROVED);
-    
-    const newStats = {
-      hadir: fetchedAllRecords.filter(r => [AttendanceStatus.HADIR, AttendanceStatus.PULANG, AttendanceStatus.TERLAMBAT, AttendanceStatus.CUTI_BERSAMA].includes(r.status)).length,
-      izinSakit: approvedPermits.length,
-      alpha: fetchedAllRecords.filter(r => r.status === AttendanceStatus.ALPHA_SYSTEM || r.status === AttendanceStatus.ALPHA).length,
-      total: fetchedAllRecords.length
-    };
-    setStats(newStats);
-
-    const totalWorkingDaysInMonth = eachDayOfInterval({ start, end })
-      .filter(day => {
-        const dayOfWeek = getDay(day);
-        const dateStr = format(day, 'yyyy-MM-dd');
-        const isOperational = fetchedSettings.operationalDays.includes(dayOfWeek);
-        const isHoliday = fetchedSettings.holidays.includes(dateStr);
-        const isAfterStart = !isBefore(day, new Date(user.startDate));
-        const isBeforeEnd = !isAfter(day, new Date(user.endDate));
-        return isOperational && !isHoliday && isAfterStart && isBeforeEnd;
-      }).length || 1;
-
-    const attendedDaysInMonth = fetchedAllRecords.filter(r => {
-      const d = new Date(r.date);
-      return d >= start && d <= end && [AttendanceStatus.HADIR, AttendanceStatus.PULANG, AttendanceStatus.TERLAMBAT, AttendanceStatus.CUTI_BERSAMA].includes(r.status);
-    }).length;
-
-    setMonthlyProgress(Math.min(100, Math.round((attendedDaysInMonth / totalWorkingDaysInMonth) * 100)));
+  const safeFormat = (dateStr: any, fmt: string) => {
+    if (!dateStr || dateStr === "0000-00-00") return '-';
+    const d = new Date(dateStr);
+    return isValid(d) ? format(d, fmt, { locale: localeId }) : '-';
   };
 
-  if (loading) return null;
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      try {
+        storage.syncAlphaStatus(user).catch(e => console.error("Sync in background failed."));
+        await loadData();
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+  }, [user.id]);
+
+  const loadData = async () => {
+    try {
+      const today = new Date();
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      
+      const [fetchedAllRecords, fetchedPermits, fetchedSettings] = await Promise.all([
+        storage.getAttendanceByUser(user.id),
+        storage.getPermitsByUser(user.id),
+        storage.getSettings()
+      ]);
+      
+      const currentSettings = fetchedSettings || DEFAULT_SETTINGS;
+      setSettings(currentSettings);
+
+      const monthlyRecords = (fetchedAllRecords || []).filter(r => {
+        const d = new Date(r.date);
+        return isValid(d) && d >= start && d <= end;
+      }).sort((a, b) => b.date.localeCompare(a.date));
+
+      setRecords(monthlyRecords);
+
+      const approvedPermits = (fetchedPermits || []).filter(p => p.status === PermitStatus.APPROVED);
+      
+      setStats({
+        hadir: (fetchedAllRecords || []).filter(r => [AttendanceStatus.HADIR, AttendanceStatus.PULANG, AttendanceStatus.TERLAMBAT, AttendanceStatus.CUTI_BERSAMA].includes(r.status as AttendanceStatus)).length,
+        izinSakit: approvedPermits.length,
+        alpha: (fetchedAllRecords || []).filter(r => r.status === AttendanceStatus.ALPHA_SYSTEM || r.status === AttendanceStatus.ALPHA).length,
+        total: (fetchedAllRecords || []).length
+      });
+
+      const startDateObj = new Date(user.startDate);
+      const endDateObj = new Date(user.endDate);
+
+      if (isValid(startDateObj) && isValid(endDateObj)) {
+        try {
+          const totalWorkingDaysInMonth = eachDayOfInterval({ start, end })
+            .filter(day => {
+              const dayOfWeek = getDay(day);
+              const dateStr = format(day, 'yyyy-MM-dd');
+              const isOperational = currentSettings.operationalDays?.includes(dayOfWeek);
+              const isHoliday = currentSettings.holidays?.includes(dateStr);
+              const isAfterStart = !isBefore(day, startDateObj);
+              const isBeforeEnd = !isAfter(day, endDateObj);
+              return isOperational && !isHoliday && isAfterStart && isBeforeEnd;
+            }).length || 1;
+
+          const attendedDaysInMonth = monthlyRecords.filter(r => [AttendanceStatus.HADIR, AttendanceStatus.PULANG, AttendanceStatus.TERLAMBAT, AttendanceStatus.CUTI_BERSAMA].includes(r.status as AttendanceStatus)).length;
+          setMonthlyProgress(Math.min(100, Math.round((attendedDaysInMonth / totalWorkingDaysInMonth) * 100)));
+        } catch (e) { setMonthlyProgress(0); }
+      }
+    } catch (e) {
+      console.error("Gagal mengolah data dashboard:", e);
+    }
+  };
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-40 gap-4">
+      <Loader2 className="animate-spin text-rose-600" size={48} />
+      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Sinkronisasi Database...</p>
+    </div>
+  );
 
   const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-  const workingDaysStr = settings.operationalDays.map(d => dayNames[d]).join(', ');
+  const workingDaysStr = (settings.operationalDays || []).map(d => dayNames[d]).join(', ');
 
   const getStatusBadge = (status: AttendanceStatus) => {
     switch (status) {
@@ -98,7 +118,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
         return <span className="flex items-center gap-1.5 text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-orange-100">TERLAMBAT</span>;
       case AttendanceStatus.IZIN:
       case AttendanceStatus.SAKIT:
-        return <span className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-blue-100">{status.toUpperCase()}</span>;
+        return <span className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-blue-100">{String(status).toUpperCase()}</span>;
       case AttendanceStatus.ALPHA_SYSTEM:
       case AttendanceStatus.ALPHA:
         return <span className="flex items-center gap-1.5 text-rose-600 bg-rose-50 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-rose-100">ALPHA</span>;
@@ -123,7 +143,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
         </div>
         <div className="relative z-10 bg-white/5 border border-white/10 px-8 py-5 rounded-3xl backdrop-blur-md">
            <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest mb-1">Status Sesi</p>
-           <p className="text-lg font-black text-white">{format(new Date(), 'EEEE, dd MMM yyyy', { locale: localeId })}</p>
+           <p className="text-lg font-black text-white">{safeFormat(new Date(), 'EEEE, dd MMM yyyy')}</p>
         </div>
       </div>
 
@@ -136,19 +156,21 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
                    <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                       <div className="text-center">
                         <p className="text-[8px] font-black text-slate-400 uppercase">Mulai</p>
-                        <p className="text-[11px] font-black text-black">{format(new Date(user.startDate), 'dd MMM yyyy')}</p>
+                        <p className="text-[11px] font-black text-black">{safeFormat(user.startDate, 'dd MMM yyyy')}</p>
                       </div>
                       <div className="h-8 w-px bg-slate-200"></div>
                       <div className="text-center">
                         <p className="text-[8px] font-black text-slate-400 uppercase">Selesai</p>
-                        <p className="text-[11px] font-black text-black">{format(new Date(user.endDate), 'dd MMM yyyy')}</p>
+                        <p className="text-[11px] font-black text-black">{safeFormat(user.endDate, 'dd MMM yyyy')}</p>
                       </div>
                    </div>
                 </div>
                 <div>
                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Timer size={14} className="text-rose-600" /> Sisa Masa Magang</h3>
                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-black tracking-tighter">{Math.max(0, Math.floor((new Date(user.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))}</span>
+                      <span className="text-4xl font-black text-black tracking-tighter">
+                        {user.endDate && isValid(new Date(user.endDate)) ? Math.max(0, Math.floor((new Date(user.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))) : '0'}
+                      </span>
                       <span className="text-sm font-black text-rose-600 uppercase">Hari Lagi</span>
                    </div>
                 </div>
@@ -182,7 +204,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
              <div className="flex-1 space-y-1">
                 <h4 className="text-[10px] font-black text-white uppercase tracking-widest">Informasi Jam Kerja</h4>
                 <p className="text-[11px] text-white/60 font-medium tracking-tight">Shift Operasional: <span className="text-white font-black">{settings.clockInStart} - {settings.clockOutStart} WIB</span></p>
-                <p className="text-[11px] text-white/60 font-medium tracking-tight">Hari Aktif: <span className="text-rose-500 font-black uppercase tracking-widest">{workingDaysStr}</span></p>
+                <p className="text-[11px] text-white/60 font-medium tracking-tight">Hari Aktif: <span className="text-rose-500 font-black uppercase tracking-widest">{workingDaysStr || '-'}</span></p>
              </div>
              <div className="hidden md:block w-px h-10 bg-white/10"></div>
              <div className="space-y-1 text-center md:text-right">
@@ -218,11 +240,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
             <tbody className="divide-y divide-slate-50">
               {currentData.map((record) => (
                 <tr key={record.id} className="hover:bg-slate-50/50 transition-all">
-                  <td className="px-8 py-4 text-black uppercase">{format(new Date(record.date), 'EEEE, dd MMM yyyy', { locale: localeId })}</td>
+                  <td className="px-8 py-4 text-black uppercase">{safeFormat(record.date, 'EEEE, dd MMM yyyy')}</td>
                   <td className="px-6 py-4 text-center">
                     <span className="text-emerald-600">{record.clockIn || '--:--'}</span> / <span className="text-rose-600">{record.clockOut || '--:--'}</span>
                   </td>
-                  <td className="px-6 py-4 text-center"><div className="flex justify-center">{getStatusBadge(record.status)}</div></td>
+                  <td className="px-6 py-4 text-center"><div className="flex justify-center">{getStatusBadge(record.status as AttendanceStatus)}</div></td>
                   <td className="px-6 py-4 font-medium text-slate-400 italic leading-tight">
                     <div className="max-w-[200px] truncate" title={record.note}>
                       {record.note || '-'}
@@ -243,7 +265,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Modal Detail Presensi */}
       {viewingRecord && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setViewingRecord(null)}></div>
@@ -253,15 +274,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
               <button onClick={() => setViewingRecord(null)} className="p-2 hover:bg-white/10 rounded-xl"><X size={20} /></button>
             </div>
             <div className="p-8 overflow-y-auto space-y-8">
-              {viewingRecord.status === AttendanceStatus.IZIN || viewingRecord.status === AttendanceStatus.SAKIT || viewingRecord.status === AttendanceStatus.ALPHA ? (
-                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex items-start gap-4">
-                  <Info className="text-rose-600 mt-1 shrink-0" size={24} />
-                  <div>
-                    <h4 className="font-black text-slate-900 uppercase text-xs">Keterangan Khusus</h4>
-                    <p className="text-slate-500 font-bold text-[11px] mt-2 italic">"{viewingRecord.note || 'Tidak ada catatan tambahan.'}"</p>
-                  </div>
+              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex items-start gap-4">
+                <Info className="text-rose-600 mt-1 shrink-0" size={24} />
+                <div>
+                  <h4 className="font-black text-slate-900 uppercase text-xs">Informasi Tambahan</h4>
+                  <p className="text-slate-500 font-bold text-[11px] mt-2 italic">"{viewingRecord.note || 'Tidak ada catatan tambahan.'}"</p>
                 </div>
-              ) : null}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-3">
@@ -310,9 +329,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user }) => {
 const StatCard = ({ label, value, color }: any) => {
   const colors: any = { emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100', blue: 'bg-blue-50 text-blue-600 border-blue-100', rose: 'bg-rose-50 text-rose-600 border-rose-100', black: 'bg-black text-white border-white/5' };
   return (
-    <div className={`p-6 rounded-[2rem] border shadow-sm flex flex-col items-center gap-2 transition-all hover:-translate-y-1.5 ${colors[color]}`}>
+    <div className={`p-6 rounded-[2rem] border shadow-sm flex flex-col items-center gap-2 transition-all hover:-translate-y-1.5 ${colors[color] || colors.black}`}>
       <p className={`text-[8px] font-black uppercase tracking-widest text-center ${color === 'black' ? 'text-white/40' : 'opacity-70'}`}>{label}</p>
-      <p className="text-3xl font-black tracking-tighter">{value}</p>
+      <p className="text-3xl font-black tracking-tighter">{value || 0}</p>
     </div>
   );
 };

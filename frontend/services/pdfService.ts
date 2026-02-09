@@ -1,4 +1,3 @@
-
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AttendanceRecord, User, AttendanceStatus } from '../types';
@@ -32,46 +31,90 @@ export const exportAttendancePDF = async (user: User, records: AttendanceRecord[
     const doc = new jsPDF('p', 'mm', 'a4');
     const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
     
-    // 1. LOGO POSITIONING
+    // === LOGO POSITIONING - DIPERBAIKI ===
+    // Logo sejajar secara vertikal dan ukuran yang konsisten
+    const logoSize = 25; // Ukuran logo yang sama
+    const logoY = 10; // Posisi Y yang sama untuk kedua logo
+    const leftMargin = 15;
+    const rightMargin = 195 - logoSize; // Dari kanan margin
+    
     try {
       const spLogo = await getBase64ImageFromUrl(LOGO_SEMEN_PADANG);
       const sigLogo = await getBase64ImageFromUrl(LOGO_SIG);
-      doc.addImage(spLogo, 'PNG', 15, 8, 20, 20, undefined, 'FAST');
-      doc.addImage(sigLogo, 'PNG', 150, 8, 45, 20, undefined, 'FAST');
+      
+      // Logo kiri (Semen Padang) - sejajar
+      doc.addImage(spLogo, 'PNG', leftMargin, logoY, logoSize, logoSize, undefined, 'FAST');
+      
+      // Logo kanan (SIG) - sejajar
+      doc.addImage(sigLogo, 'PNG', rightMargin, logoY, logoSize, logoSize, undefined, 'FAST');
     } catch (err) {
       console.warn("Logos failed to load", err);
     }
 
-    // Header Text
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text(COMPANY_NAME, 105, 16, { align: "center" });
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 116, 139);
-    doc.text(COMPANY_ADDRESS, 105, 21, { align: "center" });
+    // === HEADER TEXT - DIPERBAIKI ===
+    // Posisi header di tengah antara kedua logo
+    const headerY = logoY + 8; // Mulai dari tengah logo
     
-    // Kop Line
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.5);
-    doc.line(15, 30, 195, 30);
-
-    // Judul Dokumen
-    doc.setFontSize(11);
+    doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0, 0, 0);
-    doc.text("LAPORAN REKAPITULASI PRESENSI BULANAN", 105, 40, { align: "center" });
+    doc.text(COMPANY_NAME, 105, headerY, { align: "center" });
+    
     doc.setFontSize(9);
-    doc.text(`${monthNames[month].toUpperCase()} ${year}`, 105, 45, { align: "center" });
-
-    // Identitas Ringkas
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.text("DATA PESERTA:", 15, 54);
     doc.setFont("helvetica", "normal");
-    doc.text(`Nama: ${user.name}  |  Unit: ${user.division || '-'}  |  Asal: ${user.university}`, 15, 58);
+    doc.setTextColor(80, 80, 80);
+    doc.text(COMPANY_ADDRESS, 105, headerY + 5, { align: "center" });
+    
+    // === KOP LINE - DIPERBAIKI ===
+    const lineY = logoY + logoSize + 3; // 3mm di bawah logo
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.line(leftMargin, lineY, 195, lineY);
+    
+    // Garis bawah lebih tipis
+    doc.setLineWidth(0.3);
+    doc.line(leftMargin, lineY + 0.5, 195, lineY + 0.5);
 
-    // 2. TABEL PRESENSI (Ditambah Kolom Keterangan)
+    // === JUDUL DOKUMEN - DIPERBAIKI ===
+    const titleY = lineY + 10;
+    
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0, 0, 0);
+    doc.text("LAPORAN REKAPITULASI PRESENSI BULANAN", 105, titleY, { align: "center" });
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${monthNames[month].toUpperCase()} ${year}`, 105, titleY + 5, { align: "center" });
+
+    // === IDENTITAS - DIPERBAIKI ===
+    const identityY = titleY + 12;
+    const labelWidth = 20; // Lebar kolom label
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0, 0, 0);
+    
+    // Buat tabel info peserta yang rapi
+    doc.text("Nama", leftMargin, identityY);
+    doc.text(":", leftMargin + labelWidth, identityY);
+    doc.setFont("helvetica", "normal");
+    doc.text(user.name, leftMargin + labelWidth + 3, identityY);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Unit", leftMargin, identityY + 5);
+    doc.text(":", leftMargin + labelWidth, identityY + 5);
+    doc.setFont("helvetica", "normal");
+    doc.text(user.division || '-', leftMargin + labelWidth + 3, identityY + 5);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Asal", leftMargin, identityY + 10);
+    doc.text(":", leftMargin + labelWidth, identityY + 10);
+    doc.setFont("helvetica", "normal");
+    doc.text(user.university, leftMargin + labelWidth + 3, identityY + 10);
+
+    // === TABEL PRESENSI - DIPERBAIKI ===
+    const tableStartY = identityY + 17;
     const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date));
     
     const tableData = sortedRecords.map((r, i) => {
@@ -96,64 +139,104 @@ export const exportAttendancePDF = async (user: User, records: AttendanceRecord[
     });
 
     autoTable(doc, {
-      startY: 64,
+      startY: tableStartY,
       head: [['NO', 'TANGGAL', 'MASUK', 'PULANG', 'STATUS', 'KETERANGAN']],
       body: tableData,
       theme: 'grid',
       headStyles: { 
-        fillColor: [0, 0, 0], 
+        fillColor: [30, 41, 59], // Warna header lebih modern
         textColor: [255, 255, 255], 
         fontStyle: 'bold',
         halign: 'center',
-        fontSize: 7,
-        lineColor: [0, 0, 0],
-        lineWidth: 0.1
+        fontSize: 8,
+        lineColor: [30, 41, 59],
+        lineWidth: 0.1,
+        cellPadding: 2
       },
       styles: { 
-        fontSize: 6.5, 
-        cellPadding: 1.2, 
+        fontSize: 7.5, 
+        cellPadding: 2, 
         valign: 'middle',
         font: 'helvetica',
-        lineColor: [0, 0, 0],
+        lineColor: [200, 200, 200],
         lineWidth: 0.1,
         textColor: [0, 0, 0]
       },
       columnStyles: {
-        0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 25, halign: 'center' },
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 22, halign: 'center' },
         2: { cellWidth: 20, halign: 'center' },
         3: { cellWidth: 20, halign: 'center' },
-        4: { cellWidth: 25, halign: 'center', fontStyle: 'bold' },
-        5: { cellWidth: 'auto' } // Keterangan fleksibel
+        4: { cellWidth: 28, halign: 'center', fontStyle: 'bold' },
+        5: { cellWidth: 'auto', halign: 'left' }
       },
-      margin: { left: 15, right: 15 }
+      alternateRowStyles: {
+        fillColor: [248, 250, 252] // Zebra striping untuk mudah dibaca
+      },
+      margin: { left: leftMargin, right: 15 }
     });
 
-    // Tanda Tangan
+    // === TANDA TANGAN - DIPERBAIKI ===
     let finalY = (doc as any).lastAutoTable?.finalY || 100;
-    finalY += 15;
+    finalY += 12;
     
-    if (finalY > 260) {
+    if (finalY > 250) {
       doc.addPage();
       finalY = 20;
     }
     
-    doc.setFontSize(8);
-    doc.text(`Dicetak pada: ${format(new Date(), 'dd MMMM yyyy HH:mm', { locale: localeId })}`, 15, finalY);
+    // Footer info
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Dicetak pada: ${format(new Date(), 'dd MMMM yyyy, HH:mm', { locale: localeId })} WIB`, leftMargin, finalY);
     
-    const sigY = finalY + 10;
+    // Tanda tangan dengan layout yang lebih rapi
+    const sigY = finalY + 8;
+    const leftSigX = leftMargin;
+    const rightSigX = 135; // Posisi TTD kanan
+    
+    doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
-    doc.text("Pembimbing Lapangan,", 15, sigY);
-    doc.text("Peserta Magang,", 155, sigY);
+    doc.setTextColor(0, 0, 0);
     
-    const nameY = sigY + 25;
-    doc.text(user.supervisorName || "____________________", 15, nameY);
-    doc.text(user.name, 155, nameY);
+    // TTD Kiri
+    doc.text("Pembimbing Lapangan,", leftSigX, sigY);
+    
+    // TTD Kanan
+    doc.text("Peserta Magang,", rightSigX, sigY);
+    
+    // Ruang untuk tanda tangan (30mm)
+    const nameY = sigY + 20;
+    
+    // Garis untuk nama
+    doc.setLineWidth(0.3);
+    doc.line(leftSigX, nameY - 2, leftSigX + 50, nameY - 2);
+    doc.line(rightSigX, nameY - 2, rightSigX + 50, nameY - 2);
+    
+    // Nama
+    doc.setFont("helvetica", "bold");
+    doc.text(user.supervisorName || "____________________", leftSigX, nameY);
+    doc.text(user.name, rightSigX, nameY);
+    
+    // Jabatan/Status (opsional)
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(80, 80, 80);
+    doc.text("Pembimbing", leftSigX, nameY + 4);
+    doc.text("Peserta", rightSigX, nameY + 4);
 
-    const fileName = `Laporan_Bulanan_${user.name.replace(/\s+/g, '_')}_${monthNames[month]}.pdf`;
+    // === SAVE FILE ===
+    const fileName = `Laporan_Bulanan_${user.name.replace(/\s+/g, '_')}_${monthNames[month]}_${year}.pdf`;
     doc.save(fileName);
     
-    Swal.fire({ icon: 'success', title: 'Berhasil', text: 'Laporan bulanan telah diunduh.', timer: 2000, showConfirmButton: false });
+    Swal.fire({ 
+      icon: 'success', 
+      title: 'Berhasil', 
+      text: 'Laporan bulanan telah diunduh dengan format yang diperbaiki.', 
+      timer: 2500, 
+      showConfirmButton: false 
+    });
     
   } catch (error) {
     console.error("PDF Error:", error);
