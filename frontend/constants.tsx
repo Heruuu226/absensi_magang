@@ -17,8 +17,8 @@ export const DEFAULT_SETTINGS = {
 };
 
 // Nama file sesuai permintaan user terbaru
-export const LOGO_SIG = "public/sig_logo.png";
-export const LOGO_SEMEN_PADANG = "public/logo_sp.png";
+export const LOGO_SIG = "/sig_logo.png";
+export const LOGO_SEMEN_PADANG = "/logo_sp.png";
 
 export const APP_NAME = "Sistem Absensi Magang";
 export const COMPANY_NAME = "PT Semen Padang";
